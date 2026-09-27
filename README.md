@@ -2,7 +2,7 @@
 
 # 🎣 Fishing Net
 
-**AI-powered anti-phishing platform for small businesses and home users**
+**Open-source email analysis service for phishing and social engineering detection**
 
 🌐 [English](README.md) • [Русский](README_RU.md)
 
@@ -12,59 +12,70 @@
 ![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![status](https://img.shields.io/badge/status-MVP-orange?style=flat-square)
 
-*Fishing Net reads emails like a SOC analyst — and explains in plain language why a message is dangerous.*
-
 </div>
 
 ---
 
-## 🧨 The Problem
+## 📖 Overview
 
-- **91%** of successful breaches start with a phishing email
-- Enterprise gateways (Proofpoint, Kaspersky) cost **$10,000+/year** — unreachable for a 20-person company
-- Built-in spam filters catch only **known signatures**; fresh phishing sails through
-- Classic antispam doesn't understand context: *"Pay this invoice by 18:00 or penalty"* looks perfectly legit to a machine
+Fishing Net is a self-hosted service that analyzes incoming email messages and classifies them by threat level. Instead of matching messages against a database of known signatures, the service evaluates the meaning and context of a message: manipulation techniques, requested actions, sender context.
 
-**Result:** small businesses (1–100 employees) are practically defenseless.
+Every verdict is returned with a human-readable explanation of the reasons behind it.
 
-## 🧠 The Solution
+## 🧠 How It Works
 
-A 3-stage analysis pipeline:
+Analysis runs as a three-stage pipeline:
 
 ```
         incoming email
               │
    ┌──────────▼──────────┐
    │ Stage 1 · technical │  SPF / DKIM / DMARC, IP reputation   (~0.1s)
-   └──────────┬──────────
+   └──────────┬──────────┘
    ┌──────────▼──────────┐
    │ Stage 2 · heuristics│  social-engineering dictionary       (~1ms)
-   └────────────────────┘
-   ──────────▼──────────
-   │ Stage 3 · LLM       │  DeepSeek deep context analysis      (~3s)
+   └──────────┬──────────┘
+   ┌──────────▼──────────┐
+   │ Stage 3 · LLM       │  deep context analysis               (~3s)
    └──────────┬──────────┘
         ┌─────▼─────┐
-        │  VERDICT  │  + human-readable explanation
+        │  VERDICT  │  + explanation of the reasons
         └───────────┘
 ```
 
-> MVP implements stages 2–3. The SPF/DKIM/DMARC layer is the next milestone (see Roadmap).
+> Current release implements stages 2–3. Stage 1 is planned (see Roadmap).
 
-| Verdict | Meaning | Action |
-|---------|---------|--------|
+| Verdict | Meaning | Default action |
+|---------|---------|----------------|
 | 🟢 Safe | ordinary correspondence | delivered as usual |
-| 🟡 Suspicious | something is off | user warned + SOC notified |
-| 🔴 Phishing | social engineering detected | quarantined + alert sent |
+| 🟡 Suspicious | some signs detected | user warning + notification |
+| 🔴 Phishing | social engineering confirmed | quarantine + alert |
 
-## ✨ Key Feature: Explainable Verdicts
+Messages that receive a red verdict at stage 2 are not sent to stage 3: obvious cases do not require LLM resources.
 
-Every decision comes with a plain-language explanation.
+## 🔍 Detection Example
 
-> **Email from "CEO" to accountant:**
+> **Message text:**
 > *"Urgently pay the supplier invoice. Details in attachment. Confidential, do not discuss with colleagues. Confirm within an hour."*
 
-- **Signature AV sees:** valid SPF, no links, no attachments → pass
-- **Fishing Net sees:** urgency pressure + secrecy demand + authority impersonation + off-procedure payment → 🔴 **phishing**
+Signs detected by the analyzer:
+
+- urgency pressure ("within an hour")
+- secrecy requirement ("do not discuss with colleagues")
+- authority impersonation ("from the CEO")
+- payment request outside normal business procedure
+
+Verdict: 🔴 phishing, with an explanation of each reason.
+
+## ✨ Features
+
+- Three-stage analysis pipeline
+- Explainable verdicts in plain language
+- Bilingual (RU/EN) dictionary of social-engineering signs, grouped by manipulation category
+- Deep analysis via LLM with a configurable provider
+- Alerts via Telegram
+- Self-hosted deployment: Docker or plain Python
+- REST API for integration with external systems
 
 ## 🚀 Quick Start
 
@@ -76,7 +87,7 @@ pip install -r requirements.txt
 copy .env.example .env   # then fill in your keys
 uvicorn app.main:app --reload
 ```
-Open http://127.0.0.1:8000/docs and try it from the interactive panel.
+Interactive API documentation is available at http://127.0.0.1:8000/docs
 
 ### Docker
 ```powershell
@@ -87,9 +98,11 @@ docker-compose up --build
 
 | Variable | Purpose |
 |----------|---------|
-| `DEEPSEEK_API_KEY` | key for the DeepSeek LLM (stage 3) |
-| `TELEGRAM_BOT_TOKEN` | token of your alert bot |
-| `TELEGRAM_CHAT_ID` | chat where alerts are delivered |
+| `DEEPSEEK_API_KEY` | key for the LLM provider (stage 3) |
+| `TELEGRAM_BOT_TOKEN` | token of the alert bot |
+| `TELEGRAM_CHAT_ID` | chat where notifications are delivered |
+
+Without keys the service remains operational: stage 2 works autonomously, and stage 3 returns a degradation notice.
 
 ## 📡 API
 
@@ -103,6 +116,18 @@ docker-compose up --build
 }
 ```
 
+Response:
+```json
+{
+  "level": "red",
+  "verdict": "Phishing",
+  "explanation": "...",
+  "techniques": ["urgency", "secrecy", "money"],
+  "confidence": 0.9,
+  "advice": "..."
+}
+```
+
 ## 🗂 Project Structure
 
 ```
@@ -111,7 +136,7 @@ fishing-net/
 │   ├── __init__.py
 │   ├── main.py            # FastAPI entry point
 │   ├── analyzer.py        # heuristics + analysis pipeline
-│   ├── llm_manager.py     # DeepSeek integration
+│   ├── llm_manager.py     # LLM integration
 │   └── telegram_bot.py    # alerting
 ├── .env.example
 ├── Dockerfile
@@ -122,19 +147,19 @@ fishing-net/
 
 ## 🗺 Roadmap
 
-- [x] MVP core: heuristic filter + LLM analysis + Telegram alerts
+- [x] MVP: heuristic filter + LLM analysis + Telegram alerts
 - [ ] Stage 1: SPF / DKIM / DMARC checks
 - [ ] Chrome extension
 - [ ] Self-hosted mode with local LLM (Ollama)
-- [ ] OS-level agent (EDR-lite) + SIEM integrations
+- [ ] OS-level agent + SIEM integrations
 
 ## ⚖️ Disclaimer
 
-Fishing Net is an assistant, not a guarantee. The final decision always stays with the human.
+Fishing Net is an analysis assistant, not a guarantee of protection. The final decision on a message always stays with the human.
 
 ## 👤 Author
 
-**Egor** — law student turning SOC analyst. Building security tools that small businesses can actually afford.
+**Egor** — law student, studying SOC analysis.
 
 ## 📜 License
 
